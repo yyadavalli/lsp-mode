@@ -751,7 +751,9 @@ to a text document."
             (let* ((resp (lsp--send-request (lsp--make-request
                                              "textDocument/completion"
                                               (lsp--text-document-position-params))))
-                    (items (gethash "items" resp nil)))
+                   (items (if (hash-table-p resp)
+                              (gethash "items" resp nil)
+                            resp)))
               (mapcar #'lsp--make-completion-item
                 (if (listp items) items (list items))))))
       :annotation-function #'lsp--annotate
