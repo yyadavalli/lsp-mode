@@ -1,3 +1,5 @@
+;;; lsp-common.el -- Common functions
+
 ;; Copyright (C) 2016  Vibhav Pant <vibhavp@gmail.com>  -*- lexical-binding: t -*-
 
 ;; This program is free software: you can redistribute it and/or modify
@@ -12,6 +14,8 @@
 
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+;;; Commentary:
 
 ;;; Code:
 
@@ -38,8 +42,6 @@
   "Propertize STR as per TYPE."
   (propertize str 'face (alist-get type lsp--message-type-face)))
 
-(defvar lsp--no-response)
-
 ;; from http://emacs.stackexchange.com/questions/8082/how-to-get-buffer-position-given-line-number-and-column-number
 (defun lsp--position-to-point (params)
   "Convert Position object in PARAMS to a point."
@@ -63,11 +65,12 @@ If no such directory could be found, log a warning and return `default-directory
   #'(lambda ()
       (let ((dir (locate-dominating-file "." name)))
         (expand-file-name
-          (if dir
-            dir
-            (message
-              "Couldn't find project root, using the current directory as the root.")
-            default-directory)))))
+         (if dir
+             dir
+           (message
+            "Couldn't find project root, using the current directory as the root.")
+           default-directory)))))
 
 (provide 'lsp-common)
+
 ;;; lsp-common.el ends here

@@ -1,3 +1,5 @@
+;;; lsp-methods.el -- Methods for lsp-mode
+
 ;; Copyright (C) 2016  Vibhav Pant <vibhavp@gmail.com>  -*- lexical-binding: t -*-
 
 ;; This program is free software: you can redistribute it and/or modify
@@ -13,6 +15,10 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+;;; Commentary:
+
+;;; Code:
+
 (require 'cl-lib)
 (require 'json)
 (require 'xref)
@@ -21,8 +27,6 @@
 (require 'lsp-receive)
 (require 'lsp-common)
 (require 'pcase)
-
-;;; Code:
 
 (cl-defstruct lsp--client
   (language-id nil :read-only t)
@@ -36,8 +40,6 @@
   (ignore-regexps nil :read-only t)
   (method-handlers (make-hash-table :test 'equal) :read-only t))
 
-(defvar lsp--defined-clients (make-hash-table))
-
 (cl-defstruct lsp--workspace
   (parser nil :read-only t)
   (language-id nil :read-only t)
@@ -48,33 +50,37 @@
   (root nil :ready-only t)
   (client nil :read-only t)
   (change-timer-disabled nil)
-  (proc nil) ;; the process we communicate with
+  (proc nil)     ;; the process we communicate with
   (cmd-proc nil) ;; the process we launch initially
-  (buffers nil) ;; a list of buffers associated with this workspace
+  (buffers nil)  ;; a list of buffers associated with this workspace
   (overlays nil) ;; a list of '(START . END) cons pairs with overlays on them
   )
 
+(defvar lsp--defined-clients (make-hash-table))
+
 (defvar-local lsp--cur-workspace nil)
+
 (defvar lsp--workspaces (make-hash-table :test #'equal)
   "Table of known workspaces, indexed by the project root directory.")
 
 (defvar lsp--ignored-workspace-roots (make-hash-table :test #'equal)
-  "Table of project roots which should not have a workspace,
-  indexed by the project root directory.
+  "Table of project roots which should not have a workspace.
 
-  This is populated when the user declines to open a workspace
-  for a file in the workspace")
+Table is indexed by the project root directory.
+
+This is populated when the user declines to open a workspace
+for a file in the workspace")
 
 (defcustom lsp-after-initialize-hook nil
-  "List of functions to be called after a Language Server has been initialized
-for a new workspace."
+  "Functions to be called after a Server has been initialized for a workspace."
   :type 'hook
   :group 'lsp-mode)
 
 (defvar lsp--sync-methods
   '((0 . none)
-     (1 . full)
-     (2 . incremental)))
+    (1 . full)
+    (2 . incremental)))
+
 (defvar-local lsp--server-sync-method nil
   "Sync method recommended by the server.")
 
@@ -92,9 +98,9 @@ for a new workspace."
 (defcustom lsp-document-sync-method 'full
   "How to sync the document with the language server."
   :type '(choice (const :tag "Documents should not be synced at all." 'none)
-           (const :tag "Documents are synced by always sending the full content of the document." 'full)
-           (const :tag "Documents are synced by always sending incremental changes to the document." 'incremental)
-           (const :tag "Use the method recommended by the language server." nil))
+                 (const :tag "Documents are synced by always sending the full content of the document." 'full)
+                 (const :tag "Documents are synced by always sending incremental changes to the document." 'incremental)
+                 (const :tag "Use the method recommended by the language server." nil))
   :group 'lsp-mode)
 
 ;;;###autoload
@@ -104,8 +110,8 @@ for a new workspace."
   :group 'lsp-mode)
 
 (defcustom lsp-project-whitelist nil
-  "A list of project directories for which LSP shouldn be
-initialized. When set this turns off use of
+  "A list of project directories for which LSP shouldn be initialized.
+When set this turns off use of
 `lsp-project-blacklist'"
   :type '(repeat directory)
   :group 'lsp-mode)
@@ -172,7 +178,7 @@ initialized. When set this turns off use of
 
 (defun lsp-client-on-notification (mode method callback)
   (cl-assert (cl-typep callback 'function) nil
-    "lsp-client-on-notification: CALLBACK is not a function.")
+             "lsp-client-on-notification: CALLBACK is not a function.")
   (let ((client (gethash mode lsp--defined-clients nil)))
     (cl-assert client nil (format "%s doesn't have a defined client" mode))
     (puthash method callback (lsp--client-method-handlers client))))
@@ -180,7 +186,7 @@ initialized. When set this turns off use of
 (defun lsp--make-request (method &optional params)
   "Create request body for method METHOD and parameters PARAMS."
   (plist-put (lsp--make-notification method params)
-    :id (cl-incf (lsp--workspace-last-id lsp--cur-workspace))))
+             :id (cl-incf (lsp--workspace-last-id lsp--cur-workspace))))
 
 (defun lsp--make-notification (method &optional params)
   "Create notification body for method METHOD and parameters PARAMS."
@@ -192,14 +198,14 @@ initialized. When set this turns off use of
   "Create a LSP message from PARAMS."
   (let ((json-str (json-encode params)))
     (format
-      "Content-Length: %d\r\n\r\n%s"
-      (string-bytes json-str) json-str)))
+     "Content-Length: %d\r\n\r\n%s"
+     (string-bytes json-str) json-str)))
 
 (defun lsp--send-notification (body)
   "Send BODY as a notification to the language server."
   (funcall (lsp--client-send-async (lsp--workspace-client lsp--cur-workspace))
-    (lsp--make-message body)
-    (lsp--workspace-proc lsp--cur-workspace)))
+           (lsp--make-message body)
+           (lsp--workspace-proc lsp--cur-workspace)))
 
 (defun lsp--cur-workspace-check ()
   (unless lsp--cur-workspace
@@ -210,30 +216,31 @@ initialized. When set this turns off use of
 
 (defun lsp--send-request (body &optional no-wait)
   "Send BODY as a request to the language server, get the response.
-If no-wait is non-nil, don't synchronously wait for a response."
+If NO-WAIT is non-nil, don't synchronously wait for a response."
   ;; lsp-send-sync should loop until lsp--from-server returns nil
   ;; in the case of Rust Language Server, this can be done with
   ;; 'accept-process-output`.'
   (let* ((client (lsp--workspace-client lsp--cur-workspace))
-          (parser (lsp--cur-parser))
-          (send-func (if no-wait
-                       (lsp--client-send-async client)
-                       (lsp--client-send-sync client))))
+         (parser (lsp--cur-parser))
+         (send-func (if no-wait
+                        (lsp--client-send-async client)
+                      (lsp--client-send-sync client))))
     (setf (lsp--parser-waiting-for-response parser) (not no-wait))
     (funcall send-func
-      (lsp--make-message body)
-      (lsp--workspace-proc lsp--cur-workspace))
+             (lsp--make-message body)
+             (lsp--workspace-proc lsp--cur-workspace))
     (when (not no-wait)
       (prog1 (lsp--parser-response-result parser)
         (setf (lsp--parser-response-result parser) nil)))))
 
 (defun lsp--inc-cur-file-version ()
   (puthash buffer-file-name (1+ (lsp--cur-file-version))
-    (lsp--workspace-file-versions lsp--cur-workspace)))
+           (lsp--workspace-file-versions lsp--cur-workspace)))
 
 (defun lsp--cur-file-version ()
   "Return the file version number.  If INC, increment it before."
-  (gethash buffer-file-name (lsp--workspace-file-versions lsp--cur-workspace)))
+  (gethash buffer-file-name
+           (lsp--workspace-file-versions lsp--cur-workspace)))
 
 (defun lsp--make-text-document-item ()
   "Make TextDocumentItem for the currently opened file.
@@ -245,12 +252,12 @@ interface TextDocumentItem {
     text: string;
 }"
   `(:uri ,(concat "file://" buffer-file-name)
-     :languageId ,(lsp--workspace-language-id lsp--cur-workspace)
-     :version ,(lsp--cur-file-version)
-     :text ,(buffer-substring-no-properties (point-min) (point-max))))
+    :languageId ,(lsp--workspace-language-id lsp--cur-workspace)
+    :version ,(lsp--cur-file-version)
+    :text ,(buffer-substring-no-properties (point-min) (point-max))))
 
 (defun lsp--shutdown-cur-workspace ()
-  "Shut down the language server process for lsp--cur-workspace"
+  "Shut down the language server process for lsp--cur-workspace."
   (ignore-errors
     (lsp--send-request (lsp--make-request "shutdown" (make-hash-table)))
     (lsp--send-notification (lsp--make-notification "exit" nil)))
@@ -261,14 +268,17 @@ interface TextDocumentItem {
 (add-hook 'kill-emacs-hook #'lsp--global-teardown)
 
 (defun lsp--global-teardown ()
+  "Teardown all clients for all workspaces."
   (maphash (lambda (key value) (lsp--teardown-client value)) lsp--workspaces))
 
 (defun lsp--teardown-client (client)
+  "Teardown client CLIENT."
   (setq lsp--cur-workspace client)
   (lsp--shutdown-cur-workspace))
 
 (defun lsp--uninitialize-workspace ()
-  "When a workspace is shut down, by request or from just
+  "Uninitialize workspace setup.
+When a workspace is shut down, by request or from just
 disappearing, unset all the variables related to it."
   (remhash (lsp--workspace-root lsp--cur-workspace) lsp--workspaces)
   (let ((old-root (lsp--workspace-root lsp--cur-workspace))
@@ -284,16 +294,16 @@ disappearing, unset all the variables related to it."
 ;; NOTE: Possibly make this function subject to a setting, if older LSP servers
 ;; are unhappy
 (defun lsp--client-capabilities ()
-  "Return the client capabilites"
-  `(:workspace    ,(lsp--client-workspace-capabilities)
+  "Return the client capabilites."
+  `(:workspace ,(lsp--client-workspace-capabilities)
     :textDocument ,(lsp--client-textdocument-capabilities)))
 
 (defun lsp--client-workspace-capabilities ()
-  "Client Workspace capabilities according to LSP"
+  "Client Workspace capabilities according to LSP."
   `(:executeCommand (:dynamicRegistration t)))
 
 (defun lsp--client-textdocument-capabilities ()
-  "Client Text document capabilities according to LSP"
+  "Client Text document capabilities according to LSP."
   `(:synchronization (:didSave t)))
 
 (defun lsp--server-capabilities ()
@@ -303,16 +313,15 @@ disappearing, unset all the variables related to it."
 (defun lsp--set-sync-method ()
   (let* ((sync (gethash "textDocumentSync" (lsp--server-capabilities)))
          (kind (if (hash-table-p sync) (gethash "change" sync) sync))
-         (method (alist-get kind lsp--sync-methods))
-         )
+         (method (alist-get kind lsp--sync-methods)))
     (setq lsp--server-sync-method (or lsp-document-sync-method
                                       method))))
 
 (defun lsp--client-request-handlers ()
-  "Handlers for requests originating from the server"
+  "Handlers for requests originating from the server."
   (let* ((table (make-hash-table :test 'equal)))
-    ;; ("client/registerCapability"   (error "client/registerCapability not implemented"))
-    ;; ("client/unregisterCapability" (error "client/unregisterCapability not implemented"))
+    ;; ("client/registerCapability"   (error "Client/registerCapability not implemented"))
+    ;; ("client/unregisterCapability" (error "Client/unregisterCapability not implemented"))
     (puthash "workspace/applyEdit" #'lsp--workspace-apply-edit-handler table)
     table))
 
@@ -325,7 +334,7 @@ disappearing, unset all the variables related to it."
   "Return the client for the current `major-mode'."
   (let ((client (gethash major-mode lsp--defined-clients)))
     (if client
-      client
+        client
       (when error
         (error "No client is defined for %s" major-mode)))))
 
@@ -336,15 +345,15 @@ disappearing, unset all the variables related to it."
         (dolist (buf (lsp--workspace-buffers lsp--cur-workspace))
           (with-current-buffer buf
             (message "%s: %s has exited (%s)"
-              (lsp--workspace-root lsp--cur-workspace)
-              (process-name (lsp--workspace-proc lsp--cur-workspace))
-              exit-str)
+                     (lsp--workspace-root lsp--cur-workspace)
+                     (process-name (lsp--workspace-proc lsp--cur-workspace))
+                     exit-str)
             (lsp--uninitialize-workspace)))))))
 
 (defun lsp--should-start-p (root)
   "Consult `lsp-project-blacklist' and `lsp-project-whitelist' to
   determine if a server should be started for the given ROOT
-  directory"
+  directory."
   (if lsp-project-whitelist
       (member root lsp-project-whitelist)
     (not (member root lsp-project-blacklist))))
@@ -353,49 +362,48 @@ disappearing, unset all the variables related to it."
   (when lsp--cur-workspace
     (user-error "LSP mode is already enabled for this buffer"))
   (let* ((client (lsp--get-client t))
-          (root (funcall (lsp--client-get-root client)))
-          (workspace (gethash root lsp--workspaces))
-          (should-not-init (not (lsp--should-start-p root)))
-          new-conn response init-params
-          parser proc cmd-proc)
+         (root (funcall (lsp--client-get-root client)))
+         (workspace (gethash root lsp--workspaces))
+         (should-not-init (not (lsp--should-start-p root)))
+         new-conn response init-params
+         parser proc cmd-proc)
     (if should-not-init
-      (message "Not initializing project %s" root)
+        (message "Not initializing project %s" root)
       (if workspace
-        (setq lsp--cur-workspace workspace)
-
+          (setq lsp--cur-workspace workspace)
         (setf
-          parser (make-lsp--parser
-                   :method-handlers (lsp--client-method-handlers client)
-                   :request-handlers (lsp--client-request-handlers))
-          lsp--cur-workspace (make-lsp--workspace
-                               :parser parser
-                               :language-id (lsp--client-language-id client)
-                               :file-versions (make-hash-table :test 'equal)
-                               :last-id 0
-                               :root root
-                               :client client)
-          (lsp--parser-workspace parser) lsp--cur-workspace
-          new-conn (funcall
-                     (lsp--client-new-connection client)
-                     (lsp--parser-make-filter parser (lsp--client-ignore-regexps client))
-                     (lsp--make-sentinel (current-buffer)))
-          ;; the command line process invoked
-          cmd-proc (if (consp new-conn) (car new-conn) new-conn)
-          ;; the process we actually communicate with
-          proc (if (consp new-conn) (cdr new-conn) new-conn)
+         parser (make-lsp--parser
+                 :method-handlers (lsp--client-method-handlers client)
+                 :request-handlers (lsp--client-request-handlers))
+         lsp--cur-workspace (make-lsp--workspace
+                             :parser parser
+                             :language-id (lsp--client-language-id client)
+                             :file-versions (make-hash-table :test 'equal)
+                             :last-id 0
+                             :root root
+                             :client client)
+         (lsp--parser-workspace parser) lsp--cur-workspace
+         new-conn (funcall
+                   (lsp--client-new-connection client)
+                   (lsp--parser-make-filter parser (lsp--client-ignore-regexps client))
+                   (lsp--make-sentinel (current-buffer)))
+         ;; the command line process invoked
+         cmd-proc (if (consp new-conn) (car new-conn) new-conn)
+         ;; the process we actually communicate with
+         proc (if (consp new-conn) (cdr new-conn) new-conn)
 
-          (lsp--workspace-proc lsp--cur-workspace) proc
-          (lsp--workspace-cmd-proc lsp--cur-workspace) cmd-proc
+         (lsp--workspace-proc lsp--cur-workspace) proc
+         (lsp--workspace-cmd-proc lsp--cur-workspace) cmd-proc
 
-          init-params `(:processId ,(emacs-pid) :rootPath ,root
-                         :rootUri ,(concat "file://" root)
-                         :capabilities ,(lsp--client-capabilities)))
+         init-params `(:processId ,(emacs-pid) :rootPath ,root
+                                  :rootUri ,(concat "file://" root)
+                                  :capabilities ,(lsp--client-capabilities)))
         (puthash root lsp--cur-workspace lsp--workspaces)
         (setf response (lsp--send-request (lsp--make-request "initialize" init-params)))
         (unless response
           (signal 'lsp-empty-response-error "initialize"))
         (setf (lsp--workspace-server-capabilities lsp--cur-workspace)
-          (gethash "capabilities" response))
+              (gethash "capabilities" response))
         ;; Version 3.0 now sends an "initialized" notification to allow registration
         ;; of server capabilities
         (lsp--send-notification (lsp--make-notification "initialized" nil))
@@ -406,8 +414,8 @@ disappearing, unset all the variables related to it."
   (puthash buffer-file-name 0 (lsp--workspace-file-versions lsp--cur-workspace))
   (push (current-buffer) (lsp--workspace-buffers lsp--cur-workspace))
   (lsp--send-notification (lsp--make-notification
-                            "textDocument/didOpen"
-                            `(:textDocument ,(lsp--make-text-document-item))))
+                           "textDocument/didOpen"
+                           `(:textDocument ,(lsp--make-text-document-item))))
 
   (add-hook 'after-save-hook #'lsp-on-save nil t)
   (add-hook 'kill-buffer-hook #'lsp--text-document-did-close nil t)
@@ -421,12 +429,11 @@ disappearing, unset all the variables related to it."
     (setq-local flycheck-checker 'lsp)
     (lsp-flycheck-add-mode major-mode)
     (add-to-list 'flycheck-checkers 'lsp)
-    (add-hook 'lsp-after-diagnostics-hook (lambda ()
-					    (when flycheck-mode
-					      (flycheck-buffer)))))
+    (add-hook 'lsp-after-diagnostics-hook
+              (lambda () (when flycheck-mode (flycheck-buffer)))))
 
   (when (and lsp-enable-indentation
-          (lsp--capability "documentRangeFormattingProvider"))
+             (lsp--capability "documentRangeFormattingProvider"))
     (setq-local indent-region-function #'lsp-format-region))
 
   (when lsp-enable-xref
@@ -500,36 +507,36 @@ interface Range {
   `(:start ,start :end ,end))
 
 (defun lsp--region-to-range (start end)
-  "Make Range object for the current region."
+  "Make Range object for the current region, between START and END."
   (lsp--range (lsp--point-to-position start)
     (lsp--point-to-position end)))
 
 (defun lsp--current-region-or-pos ()
-  "If the region is active return that, else get the point"
+  "If the region is active return that, else get the point."
   (if (use-region-p)
       (lsp--region-to-range (region-beginning) (region-end))
     (lsp--region-to-range (point) (point))))
 
 (defun lsp--get-start-position ()
-  "Get the start of the region if active, else current POINT"
+  "Get the start of the region if active, else current point."
   (let ((pos (if (use-region-p)
                  (region-beginning)
                (point))))
     (lsp-point-to-position pos)))
 
 (defun lsp--get-end-position ()
-  "Get the end of the region if active, else current POINT"
+  "Get the end of the region if active, else current point."
   (let ((pos (if (use-region-p)
                  (region-end)
                (point))))
     (lsp-point-to-position pos)))
 
 (defun lsp--range-start-line (range)
-  "Return the start line for a given LSP range, in LSP coordinates"
+  "Return the start line for a given LSP RANGE, in LSP coordinates."
   (plist-get (plist-get range :start) :line))
 
 (defun lsp--range-end-line (range)
-  "Return the end line for a given LSP range, in LSP coordinates"
+  "Return the end line for a given LSP RANGE, in LSP coordinates."
   (plist-get (plist-get range :end) :line))
 
 (defun lsp--apply-workspace-edits (edits)
@@ -768,8 +775,8 @@ to a text document."
 (defun lsp--text-document-code-action-params ()
   "Make CodeActionParams for the current region in the current document."
   `(:textDocument ,(lsp--text-document-identifier)
-     :range ,(lsp--current-region-or-pos)
-     :context (:diagnostics ,(lsp--cur-line-diagnotics))))
+    :range ,(lsp--current-region-or-pos)
+    :context (:diagnostics ,(lsp--cur-line-diagnotics))))
 
 (defun lsp--cur-line-diagnotics ()
   "Return any diagnostics that apply to the current line."
@@ -784,42 +791,41 @@ to a text document."
                           diags)))
     (cl-coerce (mapcar #'lsp-diagnostic-original diags-in-range) 'vector)))
 
-
 (defconst lsp--completion-item-kind
   `(
-     (1 . "Text")
-     (2 . "Method")
-     (3 . "Function")
-     (4 . "Constructor")
-     (5 . "Field")
-     (6 . "Variable")
-     (7 . "Class")
-     (8 . "Interface")
-     (9 . "Module")
-     (10 . "Property")
-     (11 . "Unit")
-     (12 . "Value")
-     (13 . "Enum")
-     (14 . "Keyword")
-     (15 . "Snippet")
-     (16 . "Color")
-     (17 . "File")
-     (18 . "Reference")))
+    (1 . "Text")
+    (2 . "Method")
+    (3 . "Function")
+    (4 . "Constructor")
+    (5 . "Field")
+    (6 . "Variable")
+    (7 . "Class")
+    (8 . "Interface")
+    (9 . "Module")
+    (10 . "Property")
+    (11 . "Unit")
+    (12 . "Value")
+    (13 . "Enum")
+    (14 . "Keyword")
+    (15 . "Snippet")
+    (16 . "Color")
+    (17 . "File")
+    (18 . "Reference")))
 
 (defun lsp--make-completion-item (item)
   (propertize (gethash "insertText" item (gethash "label" item))
-    'lsp-completion-item
-    item))
+              'lsp-completion-item
+              item))
 
 (defun lsp--annotate (item)
   (let* ((table (plist-get (text-properties-at 0 item) 'lsp-completion-item))
-          (detail (gethash "detail" table nil))
-          (kind (alist-get (gethash "kind" table nil) lsp--completion-item-kind)))
+         (detail (gethash "detail" table nil))
+         (kind (alist-get (gethash "kind" table nil) lsp--completion-item-kind)))
     (concat
-      " "
-      detail
-      (when kind " ")
-      (when kind (format "(%s)" kind)))))
+     " "
+     detail
+     (when kind " ")
+     (when kind (format "(%s)" kind)))))
 
 (defun lsp--sort-string (c)
   (gethash "sortText" c (gethash "label" c "")))
@@ -827,30 +833,30 @@ to a text document."
 (defun lsp--sort-completions (completions)
   (sort completions #'(lambda (c1 c2)
                         (when (string-lessp
-                                (lsp--sort-string c1)
-                                (lsp--sort-string c2))
+                               (lsp--sort-string c1)
+                               (lsp--sort-string c2))
                           t))))
 
 (defun lsp--get-completions ()
   (lsp--send-changes lsp--cur-workspace)
   (let ((bounds (bounds-of-thing-at-point 'symbol)))
     (list
-      (if bounds (car bounds) (point))
-      (if bounds (cdr bounds) (point))
-      (completion-table-dynamic
-        #'(lambda (_)
-            ;; *we* don't need to know the string being completed
-            ;; the language server does all the work by itself
-            (let* ((resp (lsp--send-request (lsp--make-request
-                                             "textDocument/completion"
-                                              (lsp--text-document-position-params))))
-                    (items (cond
-                             ((null resp) nil)
-                             ((hash-table-p resp) (gethash "items" resp nil))
-                             ((sequencep resp) resp))))
-              (mapcar #'lsp--make-completion-item items))))
-      :annotation-function #'lsp--annotate
-      :display-sort-function #'lsp--sort-completions)))
+     (if bounds (car bounds) (point))
+     (if bounds (cdr bounds) (point))
+     (completion-table-dynamic
+      #'(lambda (_)
+          ;; *we* don't need to know the string being completed
+          ;; the language server does all the work by itself
+          (let* ((resp (lsp--send-request (lsp--make-request
+                                           "textDocument/completion"
+                                           (lsp--text-document-position-params))))
+                 (items (cond
+                         ((null resp) nil)
+                         ((hash-table-p resp) (gethash "items" resp nil))
+                         ((sequencep resp) resp))))
+            (mapcar #'lsp--make-completion-item items))))
+     :annotation-function #'lsp--annotate
+     :display-sort-function #'lsp--sort-completions)))
 
 ;;; TODO: implement completionItem/resolve
 
@@ -862,21 +868,21 @@ interface Location {
 }"
   (lsp--send-changes lsp--cur-workspace)
   (let ((uri (string-remove-prefix "file://" (gethash "uri" location)))
-         (ref-pos (gethash "start" (gethash "range" location))))
+        (ref-pos (gethash "start" (gethash "range" location))))
     (xref-make uri
-      (xref-make-file-location uri
-        (1+ (gethash "line" ref-pos))
-        (gethash "character" ref-pos)))))
+               (xref-make-file-location uri
+                                        (1+ (gethash "line" ref-pos))
+                                        (gethash "character" ref-pos)))))
 
 (defun lsp--get-defitions ()
   "Get definition of the current symbol under point.
 Returns xref-item(s)."
   (lsp--send-changes lsp--cur-workspace)
   (let ((location (lsp--send-request (lsp--make-request
-                                       "textDocument/definition"
-                                       (lsp--text-document-position-params)))))
+                                      "textDocument/definition"
+                                      (lsp--text-document-position-params)))))
     (if (consp location) ;;multiple definitions
-      (mapcar 'lsp--location-to-xref location)
+        (mapcar 'lsp--location-to-xref location)
       (lsp--location-to-xref location))))
 
 (defun lsp--make-reference-params (&optional td-position)
@@ -884,17 +890,17 @@ Returns xref-item(s)."
 If TD-POSITION is non-nil, use it as TextDocumentPositionParams object instead."
   (let ((json-false :json-false))
     (plist-put (or td-position (lsp--text-document-position-params))
-      :context `(:includeDeclaration ,json-false))))
+               :context `(:includeDeclaration ,json-false))))
 
 (defun lsp--get-references ()
   "Get all references for the symbol under point.
 Returns xref-item(s)."
   (lsp--send-changes lsp--cur-workspace)
   (let ((location  (lsp--send-request (lsp--make-request
-                                        "textDocument/references"
-                                        (lsp--make-reference-params)))))
+                                       "textDocument/references"
+                                       (lsp--make-reference-params)))))
     (if (consp location)
-      (mapcar 'lsp--location-to-xref location)
+        (mapcar 'lsp--location-to-xref location)
       (and location (lsp--location-to-xref location)))))
 
 (defun lsp--marked-string-to-string (contents)
@@ -943,13 +949,12 @@ type MarkedString = string | { language: string; value: string };"
   "Code actions for the buffer.")
 
 (defun lsp--text-document-code-action ()
-  "Request code action to automatically fix issues reported by
-the diagnostics"
+  "Request code action to automatically fix issues reported by the diagnostics."
   (lsp--cur-workspace-check)
-  (let* ((actions (lsp--send-request (lsp--make-request
-                                    "textDocument/codeAction"
-                                    (lsp--text-document-code-action-params))
-                                     )))
+  (let* ((actions (lsp--send-request
+                   (lsp--make-request
+                    "textDocument/codeAction"
+                    (lsp--text-document-code-action-params)))))
     (setq lsp-code-actions (cl-union actions lsp-code-actions))
     nil))
 
@@ -972,7 +977,7 @@ the diagnostics"
       (lsp--apply-text-edit edit))))
 
 (defun lsp--make-document-range-formatting-params (start end)
-  "Make DocumentRangeFormattingParams for selected region.
+  "Make DocumentRangeFormattingParams for selected region between START and END.
 interface DocumentRangeFormattingParams {
     textDocument: TextDocumentIdentifier;
     range: Range;
@@ -1010,29 +1015,29 @@ interface DocumentRangeFormattingParams {
 
 (defconst lsp--symbol-kind
   '((1 . "File")
-     (2 . "Module")
-     (3 . "Namespace")
-     (4 . "Package")
-     (5 . "Class")
-     (6 . "Method")
-     (7 . "Property")
-     (8 . "Field")
-     (9 . "Constructor"),
-     (10 . "Enum")
-     (11 . "Interface")
-     (12 . "Function")
-     (13 . "Variable")
-     (14 . "Constant")
-     (15 . "String")
-     (16 . "Number")
-     (17 . "Boolean")
-     (18 . "Array")))
+    (2 . "Module")
+    (3 . "Namespace")
+    (4 . "Package")
+    (5 . "Class")
+    (6 . "Method")
+    (7 . "Property")
+    (8 . "Field")
+    (9 . "Constructor"),
+    (10 . "Enum")
+    (11 . "Interface")
+    (12 . "Function")
+    (13 . "Variable")
+    (14 . "Constant")
+    (15 . "String")
+    (16 . "Number")
+    (17 . "Boolean")
+    (18 . "Array")))
 
 (defun lsp--symbol-information-to-xref (symbol)
   (xref-make (format "%s %s"
-               (alist-get (gethash "kind" symbol) lsp--symbol-kind)
-               (gethash "name" symbol))
-    (lsp--location-to-xref (gethash "location" symbol))))
+                     (alist-get (gethash "kind" symbol) lsp--symbol-kind)
+                     (gethash "name" symbol))
+             (lsp--location-to-xref (gethash "location" symbol))))
 
 (defun lsp-format-region (s e)
   (lsp--send-changes lsp--cur-workspace)
@@ -1168,8 +1173,8 @@ command COMMAND and optionsl ARGS"
 
 
 (defun lsp--error-explainer (fc-error)
-    "Proof of concept to use this flycheck function to apply a
-    codeAction. This should eventually make use of the completion of
+  "Proof of concept to use this flycheck function to apply a codeAction.
+This should eventually make use of the completion of
     https://github.com/flycheck/flycheck/pull/1022 and
     https://github.com/flycheck/flycheck/issues/530#issuecomment-235224763"
   (message "lsp--error-explainer: got %s" fc-error))

@@ -1,3 +1,5 @@
+;;; lsp-send.el -- Send
+
 ;; Copyright (C) 2016  Vibhav Pant <vibhavp@gmail.com> -*- lexical-binding: t -*-
 
 ;; This program is free software: you can redistribute it and/or modify
@@ -13,9 +15,13 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+;;; Commentary:
+
 ;;; Code:
 
 (require 'lsp-common)
+
+(defvar lsp--no-response)
 
 ;; vibhavp: Should we use a lower value (5)?
 (defcustom lsp-response-timeout 10
@@ -24,14 +30,14 @@
   :group 'lsp-mode)
 
 (defun lsp--stdio-send-sync (message proc)
+  "Send synchronous MESSAGE to PROC."
   (when lsp-print-io
     (message "lsp--stdio-send-sync: %s" message))
   (when (memq (process-status proc) '(stop exit closed failed nil))
     (error "%s: Cannot communicate with the process (%s)" (process-name proc)
-      (process-status proc)))
+           (process-status proc)))
   (process-send-string proc
-    message)
-
+                       message)
   (setq lsp--no-response t)
   (with-local-quit
     (accept-process-output proc lsp-response-timeout))
@@ -39,13 +45,14 @@
     (signal 'lsp-timed-out-error nil)))
 
 (defun lsp--stdio-send-async (message proc)
+  "Send asynchronous MESSAGE to PROC."
   (when lsp-print-io
     (message "lsp--stdio-send-async: %s" message))
   (when (memq (process-status proc) '(stop exit closed failed nil))
     (error "%s: Cannot communicate with the process (%s)" (process-name proc)
-      (process-status proc)))
+           (process-status proc)))
   (process-send-string proc
-    message))
+                       message))
 
 (provide 'lsp-send)
 ;;; lsp-send.el ends here
